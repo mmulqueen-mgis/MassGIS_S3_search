@@ -710,28 +710,34 @@
     window.addEventListener('DOMContentLoaded', async () => {
         try {
             // ① fetch the manifest -------------------------------------------------
-            const listingResp = await fetch('s3-listings.json');
-            if (!listingResp.ok) throw new Error('manifest missing');
-            const files = await listingResp.json();        // array of txt filenames
-            if (!Array.isArray(files) || files.length === 0) return;
+            const resp = await fetch('s3-listings.json');
+            if (!resp.ok) throw new Error('manifest missing');   // 404? abort
+            const files = await resp.json();
 
-            showNotification(`Found ${files.length} listing file(s). Loading…`);
-
-            // ② load every file in parallel ---------------------------------------
             await Promise.all(files.map(async (file) => {
-                if (loadedFiles.has(file)) return;         // skip duplicates
-                const txt = await fetch(file).then(r => r.text());
-                processFile(txt, file, false);             // false ⇒ merge
-                loadedFiles.add(file);
-            }));
-
-            // ③ final UI refresh ---------------------------------------------------
-            updateUIAfterLoad();
-            showNotification(`Auto-loaded ${loadedFiles.size} file(s)`);
+              if (loadedFiles.has(file)) return;                // already merged
+                
+            const r = await fetch(file);
+              if (!r.ok) {                                      // 404/500 -> skip
+                console.warn(`${file} returned`, r.status);
+                return;
+            }
+            const txt = await r.text();
+            if (/<!doctype html/i.test(txt)) {                // HTML => skip
+                console.warn(`${file} looks like HTML, skipping`);
+                return;
+            }
+            processFile(txt, file, false);
+            loadedFiles.add(file);
+        }));
+             if (loadedFiles.size) {
+              updateUIAfterLoad();
+              showNotification(`Auto-loaded ${loadedFiles.size} file(s)`);
+            }
         } catch (err) {
             console.log('Auto-load skipped:', err.message);
         }
-    });
+});
 
 
         // Semantic tag generation
