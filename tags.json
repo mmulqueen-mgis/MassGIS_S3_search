@@ -1,0 +1,13 @@
+{
+  "map": {
+    "ortho/:": ["orthoimagery"],
+    "lidar/":  ["lidar","metadata"],
+    "bucket-b/reports/": ["metadata"]
+  },
+
+  "colors": {
+    "orthoimagery": "#e63946",
+    "lidar":        "#457b9d",
+    "metadata":     "#2a9d8f"
+  }
+}
