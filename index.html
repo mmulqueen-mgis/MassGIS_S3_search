@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Bucket Search - Enhanced</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --primary: #0073bb;
+            --primary-dark: #005a8b;
+            --secondary: #ff9900;
+            --background: #f8f9fa;
+            --surface: #ffffff;
+            --text: #232f3e;
+            --text-light: #687078;
+            --border: #e1e4e8;
+            --hover: #f5f7fa;
+            --success: #28a745;
+            --warning: #ffc107;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+            --shadow-hover: 0 4px 16px rgba(0,0,0,0.12);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--background);
+            color: var(--text);
+            line-height: 1.6;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .app-container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 4px rgba(0,0,0,0.04);
+        }
+
+        .sidebar-header {
+            padding: 24px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-light);
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+        }
+
+        .bucket-stats {
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--text-light);
+        }
+
+        .bucket-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .bucket-item {
+            padding: 12px 16px;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 14px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bucket-item:hover {
+            background: var(--hover);
+        }
+
+        .bucket-item.active {
+            background: rgba(0, 115, 187, 0.1);
+            color: var(--primary);
+            font-weight: 500;
+        }
+
+        .bucket-item.highlighted {
+            background: rgba(255, 153, 0, 0.1);
+            border: 1px solid rgba(255, 153, 0, 0.3);
+        }
+
+        .bucket-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            opacity: 0.6;
+        }
+
+        .bucket-count {
+            font-size: 12px;
+            color: var(--text-light);
+            background: var(--background);
+            padding: 2px 8px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .bucket-count .result-count {
+            background: var(--secondary);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: 500;
+            min-width: 20px;
+            text-align: center;
+        }
+
+        .bucket-item.highlighted .bucket-count {
+            background: var(--secondary);
+            color: white;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: var(--surface);
+            padding: 24px 32px;
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+        }
+
+        .logo-text {
+            font-size: 24px;
+            font-weight: 300;
+            letter-spacing: -0.5px;
+        }
+
+        .upload-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .upload-btn {
+            padding: 8px 16px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .upload-btn:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
+        .status-text {
+            font-size: 13px;
+            color: var(--success);
+        }
+
+        /* Search Section */
+        .search-container {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .search-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
+            opacity: 0.5;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 16px 12px 48px;
+            font-size: 16px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            transition: all 0.2s;
+            background: var(--background);
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: white;
+            box-shadow: 0 0 0 3px rgba(0, 115, 187, 0.1);
+        }
+
+        .search-modes {
+            display: flex;
+            gap: 4px;
+            background: var(--background);
+            padding: 4px;
+            border-radius: 6px;
+        }
+
+        .mode-btn {
+            padding: 6px 12px;
+            border: none;
+            background: transparent;
+            color: var(--text-light);
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .mode-btn:hover {
+            background: white;
+        }
+
+        .mode-btn.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* Results */
+        .results-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px 32px;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .results-count {
+            font-size: 14px;
+            color: var(--text-light);
+        }
+
+        .result-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .result-item:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow-hover);
+            transform: translateY(-2px);
+        }
+
+        .result-item:active {
+            transform: translateY(0);
+        }
+
+        .result-bucket {
+            font-size: 12px;
+            color: var(--primary);
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .result-path {
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 14px;
+            color: var(--text);
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        .result-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-light);
+        }
+
+        .result-tags {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .tag {
+            background: var(--background);
+            color: var(--text-light);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            border: 1px solid var(--border);
+        }
+
+        .tag.custom {
+            background: rgba(0, 115, 187, 0.1);
+            color: var(--primary);
+            border-color: rgba(0, 115, 187, 0.3);
+            font-weight: 500;
+        }
+
+        .highlight {
+            background: rgba(255, 193, 7, 0.3);
+            padding: 1px 2px;
+            border-radius: 2px;
+        }
+
+        /* Loading and Empty States */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-light);
+        }
+
+        .empty-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            opacity: 0.3;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-light);
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 12px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Notifications */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--text);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            box-shadow: var(--shadow-hover);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Tree View Styles */
+        .tree-view {
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 13px;
+        }
+
+        .tree-node {
+            margin-bottom: 2px;
+        }
+
+        .tree-node-content {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            gap: 8px;
+            min-height: 36px;
+        }
+
+        .tree-node-content:hover {
+            background: var(--hover);
+        }
+
+        .tree-node-content.selected {
+            background: rgba(0, 115, 187, 0.1);
+            border: 1px solid rgba(0, 115, 187, 0.3);
+        }
+
+        .tree-toggle {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            transition: transform 0.2s;
+            opacity: 0.5;
+        }
+
+        .tree-toggle.expanded {
+            transform: rotate(90deg);
+        }
+
+        .tree-toggle.hidden {
+            visibility: hidden;
+        }
+
+        .tree-icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            opacity: 0.6;
+        }
+
+        .tree-label {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text);
+        }
+
+        .tree-info {
+            display: flex;
+            gap: 12px;
+            font-size: 12px;
+            color: var(--text-light);
+            flex-shrink: 0;
+        }
+
+        .tree-count {
+            background: var(--background);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+
+        .tree-children {
+            margin-left: 24px;
+            display: none;
+            border-left: 1px solid var(--border);
+            margin-top: 2px;
+        }
+
+        .tree-children.expanded {
+            display: block;
+        }
+
+        .tree-leaf {
+            margin-left: 40px;
+        }
+
+        .tree-leaf .tree-node-content {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .tree-leaf .tree-icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Results header */
+        .results-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .view-toggles {
+            display: flex;
+            gap: 4px;
+            background: var(--background);
+            padding: 4px;
+            border-radius: 6px;
+        }
+
+        .view-toggle {
+            padding: 4px 8px;
+            border: none;
+            background: transparent;
+            color: var(--text-light);
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+        }
+
+        .view-toggle:hover {
+            background: white;
+        }
+
+        .view-toggle.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 200px;
+            }
+
+            .main-content {
+                min-width: 0;
+            }
+
+            .search-modes {
+                display: none;
+            }
+
+            .tree-children {
+                margin-left: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">S3 Buckets</div>
+                <div class="bucket-stats">
+                    <span id="totalBuckets">0 buckets</span>
+                    <span>•</span>
+                    <span id="totalObjects">0 objects</span>
+                </div>
+            </div>
+            <div class="bucket-list" id="bucketList">
+                <div class="empty-state">
+                    <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7M3 7l9-4 9 4M3 7l9 4 9-4"/>
+                    </svg>
+                    <p>No buckets loaded</p>
+                    <p style="font-size: 12px; margin-top: 8px;">Upload an S3 listing to get started</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-top">
+                    <div class="logo">
+                        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="M21 21l-4.35-4.35"/>
+                        </svg>
+                        <h1 class="logo-text">S3 Search</h1>
+                    </div>
+                    <div class="upload-area">
+                        <input type="file" id="fileInput" class="file-input" accept=".txt" multiple>
+                        <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                            </svg>
+                            Upload Listing(s)
+                        </button>
+                        <button class="upload-btn" onclick="mergeFiles()" style="background: var(--secondary); margin-left: 8px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M16 3h5v5M4 20L20.5 3.5M21 16v5h-5M15 15l5.5 5.5M4 4l5 5"/>
+                            </svg>
+                            Merge More
+                        </button>
+                        <span class="status-text" id="statusText"></span>
+                    </div>
+                </div>
+
+                <div class="search-container">
+                    <div class="search-wrapper">
+                        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="M21 21l-4.35-4.35"/>
+                        </svg>
+                        <input
+                            type="text"
+                            id="searchInput"
+                            class="search-input"
+                            placeholder="Search files, folders, or concepts..."
+                            autocomplete="off"
+                        >
+                    </div>
+                    <div class="search-modes">
+                        <button class="mode-btn active" data-mode="smart">Smart</button>
+                        <button class="mode-btn" data-mode="fuzzy">Fuzzy</button>
+                        <button class="mode-btn" data-mode="regex">Regex</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div class="results-container" id="resultsContainer">
+                <div class="empty-state" id="emptyState">
+                    <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    <h3>Ready to search</h3>
+                    <p>Upload an S3 listing file to begin searching your buckets</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let s3Data = [];
+        let buckets = new Map();
+        let fuse;
+        let searchMode = 'smart';
+        let selectedBucket = null;
+        let loadedFiles = new Set();
+        let viewMode = 'tree'; // 'tree' or 'list'
+        let currentResults = [];
+        let expandedNodes = new Set();
+
+        // Auto-load feature (manifest-based)
+    window.addEventListener('DOMContentLoaded', async () => {
+        try {
+            // ① fetch the manifest -------------------------------------------------
+            const listingResp = await fetch('s3-listings.json');
+            if (!listingResp.ok) throw new Error('manifest missing');
+            const files = await listingResp.json();        // array of txt filenames
+            if (!Array.isArray(files) || files.length === 0) return;
+
+            showNotification(`Found ${files.length} listing file(s). Loading…`);
+
+            // ② load every file in parallel ---------------------------------------
+            await Promise.all(files.map(async (file) => {
+                if (loadedFiles.has(file)) return;         // skip duplicates
+                const txt = await fetch(file).then(r => r.text());
+                processFile(txt, file, false);             // false ⇒ merge
+                loadedFiles.add(file);
+            }));
+
+            // ③ final UI refresh ---------------------------------------------------
+            updateUIAfterLoad();
+            showNotification(`Auto-loaded ${loadedFiles.size} file(s)`);
+        } catch (err) {
+            console.log('Auto-load skipped:', err.message);
+        }
+    });
+
+
+        // Semantic tag generation
+        const generateSemanticTags = (path) => {
+            const tags = [];
+            const lowerPath = path.toLowerCase();
+
+            // File type detection
+            if (lowerPath.match(/\.(jpg|jpeg|png|gif|bmp|svg|webp)$/)) tags.push('image');
+            if (lowerPath.match(/\.(mp4|avi|mov|wmv|flv|webm)$/)) tags.push('video');
+            if (lowerPath.match(/\.(mp3|wav|flac|aac|ogg)$/)) tags.push('audio');
+            if (lowerPath.match(/\.(pdf|doc|docx|txt|md)$/)) tags.push('document');
+            if (lowerPath.match(/\.(zip|tar|gz|rar|7z)$/)) tags.push('archive');
+            if (lowerPath.match(/\.(csv|xlsx|xls)$/)) tags.push('spreadsheet');
+            if (lowerPath.match(/\.(json|xml|yaml|yml)$/)) tags.push('config');
+            if (lowerPath.match(/\.(js|ts|py|java|cpp|c|go|rs|rb)$/)) tags.push('code');
+
+            // Content type detection
+            if (lowerPath.includes('backup')) tags.push('backup');
+            if (lowerPath.includes('log')) tags.push('logs');
+            if (lowerPath.includes('temp') || lowerPath.includes('tmp')) tags.push('temp');
+            if (lowerPath.includes('test')) tags.push('test');
+            if (lowerPath.includes('prod')) tags.push('production');
+            if (lowerPath.includes('dev')) tags.push('development');
+            if (lowerPath.includes('data')) tags.push('data');
+            if (lowerPath.includes('model')) tags.push('model');
+            if (lowerPath.includes('report')) tags.push('report');
+            if (lowerPath.includes('config')) tags.push('configuration');
+
+            return [...new Set(tags)];
+        };
+
+        // Semantic search expansion
+        const expandSearchTerms = (query) => {
+            const expansions = {
+                'image': ['jpg', 'jpeg', 'png', 'gif', 'photo', 'picture', 'img'],
+                'video': ['mp4', 'avi', 'mov', 'movie', 'film', 'clip'],
+                'document': ['pdf', 'doc', 'docx', 'txt', 'text', 'paper'],
+                'code': ['js', 'py', 'java', 'script', 'source', 'src'],
+                'data': ['dataset', 'csv', 'json', 'database', 'db'],
+                'backup': ['bak', 'backup', 'copy', 'archive'],
+                'log': ['logs', 'logging', 'debug', 'error'],
+                'config': ['configuration', 'settings', 'conf', 'cfg'],
+                'model': ['ml', 'ai', 'neural', 'checkpoint', 'weights']
+            };
+
+            const terms = [query];
+            const lowerQuery = query.toLowerCase();
+
+            for (const [key, values] of Object.entries(expansions)) {
+                if (lowerQuery.includes(key)) {
+                    terms.push(...values);
+                } else if (values.some(v => lowerQuery.includes(v))) {
+                    terms.push(key, ...values);
+                }
+            }
+
+            return [...new Set(terms)];
+        };
+
+        // Parse S3 listing
+        const parseS3Listing = (content) => {
+            const lines = content.trim().split('\n');
+            const items = [];
+            const bucketMap = new Map();
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+
+                // Handle paths with bucket names (bucket/path/to/file)
+                let bucketName = '';
+                let path = '';
+                let customTags = [];
+
+                // Check for enhanced format with tags
+                const tagMatch = line.match(/^(.+?)\s*\[TAGS:\s*([^\]]+)\]$/);
+                if (tagMatch) {
+                    path = tagMatch[1].trim();
+                    customTags = tagMatch[2].split(',').map(t => t.trim());
+                } else {
+                    // Check if line contains size and date info (full listing)
+                    const fullMatch = line.match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+(\d+)\s+(.+)$/);
+                    if (fullMatch) {
+                        path = fullMatch[3];
+                    } else {
+                        // Simple path format
+                        path = line.trim();
+                    }
+                }
+
+                // Extract bucket name from path
+                const pathParts = path.split('/');
+                if (pathParts.length > 0) {
+                    bucketName = pathParts[0];
+                    path = pathParts.slice(1).join('/');
+                }
+
+                if (!bucketName || !path) continue;
+
+                // Track bucket
+                if (!bucketMap.has(bucketName)) {
+                    bucketMap.set(bucketName, { name: bucketName, count: 0 });
+                }
+                bucketMap.get(bucketName).count++;
+
+                // Combine custom tags with auto-generated ones
+                const autoTags = generateSemanticTags(path);
+                const allTags = [...new Set([...customTags, ...autoTags])];
+
+                const parts = path.split('/');
+                const filename = parts[parts.length - 1] || 'directory';
+                const directory = parts.slice(0, -1).join('/');
+
+                items.push({
+                    bucket: bucketName,
+                    path: path,
+                    fullPath: `${bucketName}/${path}`,
+                    filename: filename,
+                    directory: directory,
+                    tags: allTags,
+                    customTags: customTags,
+                    searchText: `${path} ${allTags.join(' ')}`
+                });
+            }
+
+            return { items, buckets: bucketMap };
+        };
+
+        // Process uploaded file
+        const processFile = (content, filename, clearExisting = true) => {
+            const { items, buckets: bucketMap } = parseS3Listing(content);
+
+            if (items.length === 0) {
+                showNotification(`No valid entries found in ${filename}`, 'warning');
+                return;
+            }
+
+            // Clear existing data only if requested (for manual single file upload)
+            if (clearExisting) {
+                s3Data = [];
+                buckets.clear();
+                loadedFiles.clear();
+            }
+
+            // Merge new data
+            s3Data = [...s3Data, ...items];
+
+            // Merge buckets
+            bucketMap.forEach((bucket, name) => {
+                if (buckets.has(name)) {
+                    buckets.get(name).count += bucket.count;
+                } else {
+                    buckets.set(name, bucket);
+                }
+            });
+
+            // Track loaded file
+            loadedFiles.add(filename);
+
+            // Update status
+            const statusText = `Loaded ${items.length} objects from ${filename}`;
+            console.log(statusText);
+
+            if (clearExisting) {
+                updateUIAfterLoad();
+            }
+        };
+
+        // Update UI after loading files
+        const updateUIAfterLoad = () => {
+            // Initialize or reinitialize Fuse.js
+            const fuseOptions = {
+                keys: ['searchText', 'filename', 'directory'],
+                threshold: 0.3,
+                includeScore: true,
+                shouldSort: true,
+                minMatchCharLength: 2
+            };
+            fuse = new Fuse(s3Data, fuseOptions);
+
+            // Update UI
+            updateBucketList();
+            updateStats();
+            updateLoadedFilesDisplay();
+
+            // Clear empty state
+            document.getElementById('emptyState').style.display = 'none';
+
+            // Perform initial search if there's already text
+            if (document.getElementById('searchInput').value) {
+                performSearch();
+            }
+        };
+
+        // Update loaded files display
+        const updateLoadedFilesDisplay = () => {
+            const statusText = document.getElementById('statusText');
+            if (loadedFiles.size > 0) {
+                statusText.textContent = `${loadedFiles.size} file(s) loaded`;
+                statusText.style.color = 'var(--success)';
+                statusText.title = Array.from(loadedFiles).join('\n');
+            }
+        };
+
+        // Update bucket list in sidebar
+        const updateBucketList = (resultCounts = null) => {
+            const bucketList = document.getElementById('bucketList');
+            bucketList.innerHTML = '';
+
+            // Calculate total results if we have counts
+            const totalResults = resultCounts ?
+                Array.from(resultCounts.values()).reduce((a, b) => a + b, 0) : 0;
+
+            // Add "All Buckets" option
+            const allItem = document.createElement('div');
+            allItem.className = 'bucket-item active';
+            allItem.innerHTML = `
+                <div style="display: flex; align-items: center;">
+                    <svg class="bucket-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+                    </svg>
+                    All Buckets
+                </div>
+                <span class="bucket-count">
+                    ${resultCounts && totalResults > 0 ? `<span class="result-count">${totalResults}</span>` : ''}
+                    ${s3Data.length}
+                </span>
+            `;
+            allItem.onclick = () => selectBucket(null);
+            bucketList.appendChild(allItem);
+
+            // Add individual buckets
+            buckets.forEach((bucket, name) => {
+                const resultCount = resultCounts ? (resultCounts.get(name) || 0) : 0;
+                const item = document.createElement('div');
+                item.className = 'bucket-item';
+                if (resultCount > 0) {
+                    item.classList.add('highlighted');
+                }
+
+                item.innerHTML = `
+                    <div style="display: flex; align-items: center;">
+                        <svg class="bucket-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7M3 7l9-4 9 4M3 7l9 4 9-4"/>
+                        </svg>
+                        ${name}
+                    </div>
+                    <span class="bucket-count">
+                        ${resultCount > 0 ? `<span class="result-count">${resultCount}</span>` : ''}
+                        ${bucket.count}
+                    </span>
+                `;
+                item.onclick = () => selectBucket(name);
+                bucketList.appendChild(item);
+            });
+        };
+
+        // Update statistics
+        const updateStats = () => {
+            document.getElementById('totalBuckets').textContent = `${buckets.size} buckets`;
+            document.getElementById('totalObjects').textContent = `${s3Data.length} objects`;
+        };
+
+        // Select bucket filter
+        const selectBucket = (bucketName) => {
+            selectedBucket = bucketName;
+
+            // Update UI
+            document.querySelectorAll('.bucket-item').forEach(item => {
+                item.classList.remove('active');
+            });
+
+            if (bucketName === null) {
+                document.querySelector('.bucket-item').classList.add('active');
+            } else {
+                const bucketItems = document.querySelectorAll('.bucket-item');
+                bucketItems.forEach(item => {
+                    if (item.textContent.includes(bucketName)) {
+                        item.classList.add('active');
+                    }
+                });
+            }
+
+            performSearch();
+        };
+
+        // Perform search
+        const performSearch = () => {
+            const query = document.getElementById('searchInput').value.trim();
+            let results = [];
+
+            // Filter by selected bucket
+            let searchData = s3Data;
+            if (selectedBucket) {
+                searchData = s3Data.filter(item => item.bucket === selectedBucket);
+            }
+
+            if (!query) {
+                results = searchData.slice(0, 500);
+            } else {
+                if (searchMode === 'smart') {
+                    const expandedTerms = expandSearchTerms(query);
+                    const allResults = new Map();
+
+                    expandedTerms.forEach(term => {
+                        const termResults = fuse.search(term);
+                        termResults.forEach(result => {
+                            if (!selectedBucket || result.item.bucket === selectedBucket) {
+                                const key = result.item.fullPath;
+                                if (!allResults.has(key) || result.score < allResults.get(key).score) {
+                                    allResults.set(key, result);
+                                }
+                            }
+                        });
+                    });
+
+                    results = Array.from(allResults.values())
+                        .sort((a, b) => a.score - b.score)
+                        .map(r => r.item);
+
+                } else if (searchMode === 'fuzzy') {
+                    results = fuse.search(query)
+                        .filter(r => !selectedBucket || r.item.bucket === selectedBucket)
+                        .map(r => r.item);
+
+                } else if (searchMode === 'regex') {
+                    try {
+                        const regex = new RegExp(query, 'gi');
+                        results = searchData.filter(item => regex.test(item.searchText));
+                    } catch (e) {
+                        console.error('Invalid regex:', e);
+                    }
+                }
+            }
+
+            currentResults = results;
+            displayResults(results);
+            updateBucketCounts(results);
+        };
+
+        // Update bucket counts based on results
+        const updateBucketCounts = (results) => {
+            const bucketCounts = new Map();
+
+            // Count results per bucket
+            results.forEach(item => {
+                bucketCounts.set(item.bucket, (bucketCounts.get(item.bucket) || 0) + 1);
+            });
+
+            // Update bucket list with counts
+            updateBucketList(bucketCounts);
+
+            // Update active state
+            document.querySelectorAll('.bucket-item').forEach((item, index) => {
+                if (index === 0 && selectedBucket === null) {
+                    item.classList.add('active');
+                } else if (selectedBucket && item.textContent.includes(selectedBucket)) {
+                    item.classList.add('active');
+                }
+            });
+        };
+
+        // Build tree structure from flat results
+        const buildTreeStructure = (results) => {
+            const tree = new Map();
+
+            results.forEach(item => {
+                const parts = item.path.split('/').filter(p => p);
+                let currentLevel = tree;
+
+                // Build nested structure
+                parts.forEach((part, index) => {
+                    if (!currentLevel.has(part)) {
+                        currentLevel.set(part, {
+                            name: part,
+                            fullPath: parts.slice(0, index + 1).join('/'),
+                            children: new Map(),
+                            items: [],
+                            bucket: item.bucket,
+                            isLeaf: index === parts.length - 1
+                        });
+                    }
+
+                    const node = currentLevel.get(part);
+                    if (index === parts.length - 1) {
+                        node.items.push(item);
+                    }
+
+                    currentLevel = node.children;
+                });
+            });
+
+            return tree;
+        };
+
+        // Render tree view
+        const renderTreeView = (tree, bucket = null, parentPath = '') => {
+            let html = '';
+
+            // Sort entries: directories first, then files
+            const entries = Array.from(tree.entries()).sort((a, b) => {
+                const aIsDir = a[1].children.size > 0;
+                const bIsDir = b[1].children.size > 0;
+                if (aIsDir && !bIsDir) return -1;
+                if (!aIsDir && bIsDir) return 1;
+                return a[0].localeCompare(b[0]);
+            });
+
+            entries.forEach(([name, node]) => {
+                const nodeId = `${bucket || node.bucket}/${node.fullPath}`;
+                const hasChildren = node.children.size > 0;
+                const isExpanded = expandedNodes.has(nodeId);
+                const itemCount = countTreeItems(node);
+
+                html += `
+                    <div class="tree-node">
+                        <div class="tree-node-content" onclick="toggleTreeNode('${nodeId}', event)">
+                            <svg class="tree-toggle ${hasChildren ? '' : 'hidden'} ${isExpanded ? 'expanded' : ''}"
+                                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                            <svg class="tree-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                ${hasChildren ?
+                                    '<path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7M3 7l9-4 9 4M3 7l9 4 9-4"/>' :
+                                    '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>'
+                                }
+                            </svg>
+                            <span class="tree-label" title="${node.fullPath}">${highlightMatch(name)}</span>
+                            <div class="tree-info">
+                                ${itemCount > 1 ? `<span class="tree-count">${itemCount} items</span>` : ''}
+                                ${node.items.length > 0 && node.items[0].tags.length > 0 ?
+                                    `<span class="tree-count">${node.items[0].tags[0]}</span>` : ''}
+                            </div>
+                        </div>
+                        ${hasChildren ? `
+                            <div class="tree-children ${isExpanded ? 'expanded' : ''}" id="children-${nodeId}">
+                                ${renderTreeView(node.children, bucket || node.bucket, node.fullPath)}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            return html;
+        };
+
+        // Count items in tree node
+        const countTreeItems = (node) => {
+            let count = node.items.length;
+            node.children.forEach(child => {
+                count += countTreeItems(child);
+            });
+            return count;
+        };
+
+        // Toggle tree node expansion
+        window.toggleTreeNode = (nodeId, event) => {
+            event.stopPropagation();
+
+            const node = event.currentTarget;
+            const toggle = node.querySelector('.tree-toggle');
+            const children = node.parentElement.querySelector('.tree-children');
+
+            if (children) {
+                if (expandedNodes.has(nodeId)) {
+                    expandedNodes.delete(nodeId);
+                    toggle.classList.remove('expanded');
+                    children.classList.remove('expanded');
+                } else {
+                    expandedNodes.add(nodeId);
+                    toggle.classList.add('expanded');
+                    children.classList.add('expanded');
+                }
+            } else {
+                // Leaf node - copy path
+                const path = nodeId;
+                copyPath(path);
+            }
+        };
+
+        // Display results with view mode
+        const displayResults = (results) => {
+            const container = document.getElementById('resultsContainer');
+
+            if (results.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="M21 21l-4.35-4.35"/>
+                            <path d="M11 8v3m0 4h.01"/>
+                        </svg>
+                        <h3>No results found</h3>
+                        <p>Try a different search term or check your filters</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Build tree structure by bucket
+            const bucketTrees = new Map();
+            results.forEach(item => {
+                if (!bucketTrees.has(item.bucket)) {
+                    bucketTrees.set(item.bucket, []);
+                }
+                bucketTrees.get(item.bucket).push(item);
+            });
+
+            let treeHTML = '';
+            bucketTrees.forEach((items, bucket) => {
+                const tree = buildTreeStructure(items);
+                if (bucketTrees.size > 1 || selectedBucket === null) {
+                    treeHTML += `
+                        <div class="tree-node">
+                            <div class="tree-node-content" style="background: var(--hover); font-weight: 500;">
+                                <svg class="tree-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7M3 7l9-4 9 4M3 7l9 4 9-4"/>
+                                </svg>
+                                <span class="tree-label">${bucket}</span>
+                                <div class="tree-info">
+                                    <span class="tree-count">${items.length} results</span>
+                                </div>
+                            </div>
+                            <div class="tree-children expanded" style="margin-left: 0;">
+                                ${renderTreeView(tree, bucket)}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    treeHTML += renderTreeView(tree, bucket);
+                }
+            });
+
+            const resultsHTML = `
+                <div class="results-toolbar">
+                    <h3 class="results-count">
+                        ${results.length} result${results.length !== 1 ? 's' : ''}
+                        ${selectedBucket ? `in ${selectedBucket}` : ''}
+                    </h3>
+                    <div class="view-toggles">
+                        <button class="view-toggle ${viewMode === 'tree' ? 'active' : ''}" onclick="setViewMode('tree')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                                <line x1="5" y1="6" x2="19" y2="6"/>
+                                <line x1="5" y1="18" x2="19" y2="18"/>
+                            </svg>
+                            Tree
+                        </button>
+                        <button class="view-toggle ${viewMode === 'list' ? 'active' : ''}" onclick="setViewMode('list')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="7" height="7"/>
+                                <rect x="14" y="3" width="7" height="7"/>
+                                <rect x="3" y="14" width="7" height="7"/>
+                                <rect x="14" y="14" width="7" height="7"/>
+                            </svg>
+                            List
+                        </button>
+                    </div>
+                </div>
+                ${viewMode === 'tree' ?
+                    `<div class="tree-view">${treeHTML}</div>` :
+                    `<div class="results-list">
+                        ${results.slice(0, 200).map(item => `
+                            <div class="result-item" onclick="copyPath('${item.bucket}/${item.path}')">
+                                <div class="result-bucket">${item.bucket}</div>
+                                <div class="result-path">${highlightMatch(item.path)}</div>
+                                <div class="result-meta">
+                                    <span>📁 ${item.directory || 'root'}</span>
+                                </div>
+                                ${item.tags.length > 0 ? `
+                                    <div class="result-tags">
+                                        ${item.tags.map(tag => {
+                                            const isCustom = item.customTags && item.customTags.includes(tag);
+                                            return `<span class="tag ${isCustom ? 'custom' : ''}">${tag}</span>`;
+                                        }).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>`
+                }
+            `;
+
+            container.innerHTML = resultsHTML;
+        };
+
+        // Set view mode
+        window.setViewMode = (mode) => {
+            viewMode = mode;
+            displayResults(currentResults);
+        }
+
+        // Highlight search matches
+        const highlightMatch = (text) => {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query || searchMode === 'smart') return text;
+
+            const regex = new RegExp(`(${query})`, 'gi');
+            return text.replace(regex, '<span class="highlight">$1</span>');
+        };
+
+        // Copy path to clipboard
+        const copyPath = (path) => {
+            const s3Path = `s3://${path}`;
+            navigator.clipboard.writeText(s3Path).then(() => {
+                showNotification('Path copied to clipboard!');
+            });
+        };
+
+        // Show notification
+        const showNotification = (message, type = 'success') => {
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            if (type === 'warning') {
+                notification.style.background = 'var(--warning)';
+            }
+            notification.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 6L9 17l-5-5"/>
+                </svg>
+                ${message}
+            `;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.style.animation = 'slideIn 0.3s ease-out reverse';
+                setTimeout(() => notification.remove(), 300);
+            }, 2000);
+        };
+
+        // Merge files function
+        const mergeFiles = () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.txt';
+            input.multiple = true;
+
+            input.onchange = (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+
+                let filesProcessed = 0;
+                files.forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        processFile(e.target.result, file.name, false); // false = merge, don't clear
+                        filesProcessed++;
+
+                        if (filesProcessed === files.length) {
+                            updateUIAfterLoad();
+                            showNotification(`Merged ${files.length} file(s) successfully`);
+                        }
+                    };
+                    reader.readAsText(file);
+                });
+            };
+
+            input.click();
+        };
+
+        // Event listeners
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+
+            // Clear existing data for fresh upload
+            s3Data = [];
+            buckets.clear();
+            loadedFiles.clear();
+
+            let filesProcessed = 0;
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    processFile(e.target.result, file.name, false); // false because we already cleared above
+                    filesProcessed++;
+
+                    if (filesProcessed === files.length) {
+                        updateUIAfterLoad();
+                        showNotification(`Loaded ${files.length} file(s) successfully`);
+                    }
+                };
+                reader.readAsText(file);
+            });
+        });
+
+        document.getElementById('searchInput').addEventListener('input', performSearch);
+
+        // Search mode buttons
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                searchMode = e.target.dataset.mode;
+                performSearch();
+            });
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '/' && e.target.tagName !== 'INPUT') {
+                e.preventDefault();
+                document.getElementById('searchInput').focus();
+            }
+            if (e.key === 'Escape') {
+                document.getElementById('searchInput').blur();
+            }
+        });
+    </script>
+</body>
+</html>
+
