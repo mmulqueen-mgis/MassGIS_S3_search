@@ -283,6 +283,40 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
 
+        /* Tag Bar */
+        .tag-bar {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .tag-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            font-size: 12px;
+            border-radius: 14px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.15s;
+            color: white;
+            font-weight: 500;
+            border: 2px solid transparent;
+        }
+
+        .tag-chip:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .tag-chip.active {
+            box-shadow: 0 0 0 2px var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
         /* Results */
         .results-container {
             flex: 1;
@@ -675,6 +709,8 @@
                         <button class="mode-btn" data-mode="regex">Regex</button>
                     </div>
                 </div>
+                
+                <div id="tagBar" class="tag-bar"></div>
             </div>
 
             <!-- Results -->
@@ -705,10 +741,98 @@
         let viewMode = 'tree'; // 'tree' or 'list'
         let currentResults = [];
         let expandedNodes = new Set();
+        
+        // Tag system
+        let tagMap = new Map();        // prefix  →  [tags]
+        let tagColors = new Map();     // tag     →  color
+        let allTags = new Set();       // unique set for the UI
+        let activeTag = null;          // currently filtered tag
+
+        // Load tags from tags.json
+        async function loadTags() {
+            try {
+                const r = await fetch('tags.json');
+                if (!r.ok) throw new Error('tags missing');
+                const {map, colors} = await r.json();
+
+                Object.entries(map).forEach(([prefix, tags]) => {
+                    tagMap.set(prefix, tags);
+                    tags.forEach(t => allTags.add(t));
+                });
+                Object.entries(colors || {}).forEach(([t, c]) => tagColors.set(t, c));
+                console.log('Tags loaded successfully');
+            } catch (err) {
+                console.log('Tags not loaded:', err.message);
+            }
+        }
+
+        // Color palette for auto-assigning tag colors
+        const categoryColors = [
+            '#e63946', '#f77f00', '#fcbf49', '#457b9d', '#2a9d8f',
+            '#e9c46a', '#264653', '#e76f51', '#8d99ae', '#6f4e37',
+            '#a8dadc', '#f1faee', '#219ebc', '#8ecae6', '#ffb3c6',
+            '#fb8500', '#023047', '#8ecae6', '#ffd166', '#06ffa5'
+        ];
+        let colorIndex = 0;
+
+        // Pick next color for tags not defined in tags.json
+        const pickNextColor = (tag) => {
+            if (tagColors.has(tag)) return tagColors.get(tag);
+            const color = categoryColors[colorIndex % categoryColors.length];
+            colorIndex++;
+            tagColors.set(tag, color);
+            return color;
+        };
+
+        // Build tag filter bar
+        function buildTagBar() {
+            const bar = document.getElementById('tagBar');
+            if (!bar) return;
+            
+            bar.innerHTML = '';
+            if (allTags.size === 0) return;
+
+            // Add clear filter chip
+            const clearChip = document.createElement('span');
+            clearChip.className = 'tag-chip' + (activeTag === null ? ' active' : '');
+            clearChip.style.background = '#6c757d';
+            clearChip.textContent = 'All';
+            clearChip.onclick = () => toggleTagFilter(null, clearChip);
+            bar.appendChild(clearChip);
+
+            // Add tag chips
+            Array.from(allTags).sort().forEach(tag => {
+                const chip = document.createElement('span');
+                chip.className = 'tag-chip' + (activeTag === tag ? ' active' : '');
+                chip.style.background = tagColors.get(tag) || pickNextColor(tag);
+                chip.textContent = tag;
+                chip.onclick = () => toggleTagFilter(tag, chip);
+                bar.appendChild(chip);
+            });
+        }
+
+        // Toggle tag filter
+        function toggleTagFilter(tag, chip) {
+            if (activeTag === tag) {
+                activeTag = null;
+            } else {
+                activeTag = tag;
+            }
+            
+            // Update chip states
+            document.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            
+            // Perform search with new filter
+            performSearch();
+        }
 
         // Auto-load feature (manifest-based)
     window.addEventListener('DOMContentLoaded', async () => {
         try {
+            // Load tags first
+            await loadTags();
+            
             // ① fetch the manifest -------------------------------------------------
             const resp = await fetch('s3-listings.json');
             if (!resp.ok) throw new Error('manifest missing');   // 404? abort
@@ -845,7 +969,16 @@
 
                 // Combine custom tags with auto-generated ones
                 const autoTags = generateSemanticTags(path);
-                const allTags = [...new Set([...customTags, ...autoTags])];
+                const combinedTags = [...customTags, ...autoTags];
+                
+                // Add manual tags by longest-matching prefix
+                for (const [prefix, tags] of tagMap) {
+                    if (path.startsWith(prefix) || `${bucketName}/${path}`.startsWith(prefix)) {
+                        combinedTags.push(...tags);
+                    }
+                }
+                
+                const allTags = [...new Set(combinedTags)];
 
                 const parts = path.split('/');
                 const filename = parts[parts.length - 1] || 'directory';
@@ -922,6 +1055,7 @@
             updateBucketList();
             updateStats();
             updateLoadedFilesDisplay();
+            buildTagBar();
 
             // Clear empty state
             document.getElementById('emptyState').style.display = 'none';
@@ -1071,6 +1205,11 @@
                         console.error('Invalid regex:', e);
                     }
                 }
+            }
+
+            // Apply active tag filter
+            if (activeTag) {
+                results = results.filter(item => item.tags.includes(activeTag));
             }
 
             currentResults = results;
@@ -1309,10 +1448,9 @@
                                 </div>
                                 ${item.tags.length > 0 ? `
                                     <div class="result-tags">
-                                        ${item.tags.map(tag => {
-                                            const isCustom = item.customTags && item.customTags.includes(tag);
-                                            return `<span class="tag ${isCustom ? 'custom' : ''}">${tag}</span>`;
-                                        }).join('')}
+                                        ${item.tags.map(tag => `
+                                            <span class="tag-chip" style="background:${tagColors.get(tag) || pickNextColor(tag)}">${tag}</span>
+                                        `).join('')}
                                     </div>
                                 ` : ''}
                             </div>
@@ -1369,7 +1507,12 @@
         };
 
         // Merge files function
-        const mergeFiles = () => {
+        const mergeFiles = async () => {
+            // Load tags first if not already loaded
+            if (tagMap.size === 0) {
+                await loadTags();
+            }
+
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = '.txt';
@@ -1399,9 +1542,14 @@
         };
 
         // Event listeners
-        document.getElementById('fileInput').addEventListener('change', (e) => {
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
             const files = Array.from(e.target.files);
             if (files.length === 0) return;
+
+            // Load tags first if not already loaded
+            if (tagMap.size === 0) {
+                await loadTags();
+            }
 
             // Clear existing data for fresh upload
             s3Data = [];
