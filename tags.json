@@ -2,7 +2,7 @@
   "map": {
     "ortho/:": ["orthoimagery"],
     "lidar/":  ["lidar","metadata"],
-    "bucket-b/reports/": ["metadata"]
+    "s3-massit-massgis-01/lidar/": ["lidar"]
   },
 
   "colors": {
