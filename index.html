@@ -389,19 +389,13 @@
         }
 
         .tag {
-            background: var(--background);
-            color: var(--text-light);
             padding: 2px 8px;
             border-radius: 4px;
             font-size: 11px;
-            border: 1px solid var(--border);
-        }
-
-        .tag.custom {
-            background: rgba(0, 115, 187, 0.1);
-            color: var(--primary);
-            border-color: rgba(0, 115, 187, 0.3);
+            border: 1px solid;
             font-weight: 500;
+            display: inline-block;
+            margin-right: 4px;
         }
 
         .highlight {
@@ -811,20 +805,41 @@
             });
         }
 
-        // Toggle tag filter
+        // Toggle tag filter - shows all items with selected tag(s)
         function toggleTagFilter(tag, chip) {
+            // Clear search when selecting a tag
+            document.getElementById('searchInput').value = '';
+            
             if (activeTag === tag) {
+                // Clicking the same tag again - clear filter
                 activeTag = null;
+                
+                // Update chip states
+                document.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
+                document.querySelector('.tag-chip').classList.add('active'); // Select "All"
+                
+                // Show all items (no filtering)
+                performSearch();
             } else {
+                // Select new tag
                 activeTag = tag;
+                
+                // Update chip states
+                document.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                
+                // Show all items with this tag
+                let results = s3Data.filter(item => item.tags.includes(tag));
+                
+                // Apply bucket filter if one is selected
+                if (selectedBucket) {
+                    results = results.filter(item => item.bucket === selectedBucket);
+                }
+                
+                currentResults = results;
+                displayResults(results);
+                updateBucketCounts(results);
             }
-            
-            // Update chip states
-            document.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
-            chip.classList.add('active');
-            
-            // Perform search with new filter
-            performSearch();
         }
 
         // Auto-load feature (manifest-based)
@@ -1171,53 +1186,56 @@
             const query = document.getElementById('searchInput').value.trim();
             let results = [];
 
-            // Filter by selected bucket
-            let searchData = s3Data;
-            if (selectedBucket) {
-                searchData = s3Data.filter(item => item.bucket === selectedBucket);
-            }
-
-            if (!query) {
-                results = searchData.slice(0, 500);
+            // If a tag is active, don't perform text search
+            if (activeTag) {
+                results = s3Data.filter(item => item.tags.includes(activeTag));
+                if (selectedBucket) {
+                    results = results.filter(item => item.bucket === selectedBucket);
+                }
             } else {
-                if (searchMode === 'smart') {
-                    const expandedTerms = expandSearchTerms(query);
-                    const allResults = new Map();
+                // Filter by selected bucket
+                let searchData = s3Data;
+                if (selectedBucket) {
+                    searchData = s3Data.filter(item => item.bucket === selectedBucket);
+                }
 
-                    expandedTerms.forEach(term => {
-                        const termResults = fuse.search(term);
-                        termResults.forEach(result => {
-                            if (!selectedBucket || result.item.bucket === selectedBucket) {
-                                const key = result.item.fullPath;
-                                if (!allResults.has(key) || result.score < allResults.get(key).score) {
-                                    allResults.set(key, result);
+                if (!query) {
+                    results = searchData.slice(0, 500);
+                } else {
+                    if (searchMode === 'smart') {
+                        const expandedTerms = expandSearchTerms(query);
+                        const allResults = new Map();
+
+                        expandedTerms.forEach(term => {
+                            const termResults = fuse.search(term);
+                            termResults.forEach(result => {
+                                if (!selectedBucket || result.item.bucket === selectedBucket) {
+                                    const key = result.item.fullPath;
+                                    if (!allResults.has(key) || result.score < allResults.get(key).score) {
+                                        allResults.set(key, result);
+                                    }
                                 }
-                            }
+                            });
                         });
-                    });
 
-                    results = Array.from(allResults.values())
-                        .sort((a, b) => a.score - b.score)
-                        .map(r => r.item);
+                        results = Array.from(allResults.values())
+                            .sort((a, b) => a.score - b.score)
+                            .map(r => r.item);
 
-                } else if (searchMode === 'fuzzy') {
-                    results = fuse.search(query)
-                        .filter(r => !selectedBucket || r.item.bucket === selectedBucket)
-                        .map(r => r.item);
+                    } else if (searchMode === 'fuzzy') {
+                        results = fuse.search(query)
+                            .filter(r => !selectedBucket || r.item.bucket === selectedBucket)
+                            .map(r => r.item);
 
-                } else if (searchMode === 'regex') {
-                    try {
-                        const regex = new RegExp(query, 'gi');
-                        results = searchData.filter(item => regex.test(item.searchText));
-                    } catch (e) {
-                        console.error('Invalid regex:', e);
+                    } else if (searchMode === 'regex') {
+                        try {
+                            const regex = new RegExp(query, 'gi');
+                            results = searchData.filter(item => regex.test(item.searchText));
+                        } catch (e) {
+                            console.error('Invalid regex:', e);
+                        }
                     }
                 }
-            }
-
-            // Apply active tag filter
-            if (activeTag) {
-                results = results.filter(item => item.tags.includes(activeTag));
             }
 
             currentResults = results;
@@ -1456,9 +1474,10 @@
                                 </div>
                                 ${item.tags.length > 0 ? `
                                     <div class="result-tags">
-                                        ${item.tags.map(tag => `
-                                            <span class="tag-chip" style="background:${tagColors.get(tag) || pickNextColor(tag)}">${tag}</span>
-                                        `).join('')}
+                                        ${item.tags.map(tag => {
+                                            const color = tagColors.get(tag) || pickNextColor(tag);
+                                            return `<span class="tag" style="background: ${color}20; color: ${color}; border-color: ${color};">${tag}</span>`;
+                                        }).join('')}
                                     </div>
                                 ` : ''}
                             </div>
@@ -1580,7 +1599,15 @@
             });
         });
 
-        document.getElementById('searchInput').addEventListener('input', performSearch);
+        document.getElementById('searchInput').addEventListener('input', () => {
+            // Clear active tag when typing in search
+            if (activeTag) {
+                activeTag = null;
+                document.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
+                document.querySelector('.tag-chip')?.classList.add('active'); // Select "All"
+            }
+            performSearch();
+        });
 
         // Search mode buttons
         document.querySelectorAll('.mode-btn').forEach(btn => {
