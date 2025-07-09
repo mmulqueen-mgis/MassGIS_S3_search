@@ -1334,7 +1334,10 @@
                             <div class="tree-info">
                                 ${itemCount > 1 ? `<span class="tree-count">${itemCount} items</span>` : ''}
                                 ${node.items.length > 0 && node.items[0].tags.length > 0 ?
-                                    `<span class="tree-count">${node.items[0].tags[0]}</span>` : ''}
+                                    node.items[0].tags.slice(0, 2).map(tag => {
+                                        const color = tagColors.get(tag) || pickNextColor(tag);
+                                        return `<span class="tag" style="background: ${color}20; color: ${color}; border-color: ${color}; font-size: 10px; padding: 1px 6px;">${tag}</span>`;
+                                    }).join('') : ''}
                             </div>
                         </div>
                         ${hasChildren ? `
