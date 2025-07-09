@@ -971,13 +971,21 @@
                 const autoTags = generateSemanticTags(path);
                 const combinedTags = [...customTags, ...autoTags];
                 
-                // Add manual tags by longest-matching prefix
+                // Enhanced hierarchical tagging logic
+                // Collect all matching prefixes and their tags for proper inheritance
+                const allMatchingTags = [];
+                
                 for (const [prefix, tags] of tagMap) {
-                    if (path.startsWith(prefix) || `${bucketName}/${path}`.startsWith(prefix)) {
-                        combinedTags.push(...tags);
+                    const fullPath = `${bucketName}/${path}`;
+                    
+                    // Check if this path falls under this prefix
+                    if (fullPath.startsWith(prefix)) {
+                        allMatchingTags.push(...tags);
                     }
                 }
                 
+                // Add all matching tags to combined tags and remove duplicates
+                combinedTags.push(...allMatchingTags);
                 const allTags = [...new Set(combinedTags)];
 
                 const parts = path.split('/');
