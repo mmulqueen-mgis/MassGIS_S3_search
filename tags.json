@@ -1,13 +1,16 @@
 {
   "map": {
-    "ortho/:": ["orthoimagery"],
-    "lidar/":  ["lidar","metadata"],
-    "s3-massit-massgis-01/lidar/": ["lidar"]
+    "s3-massit-massgis-01/ortho/": ["orthoimagery"],
+    "s3-massit-massgis-01/lidar/": ["lidar"],
+    "s3-massit-massgis-01/metadata/": ["metadata"],
+    "massgis-archive-prod-imagery/Lidar/2011_USGS_FEMA_LIDAR/_USGS_FEMA_LiDAR_20110718/": ["lidar"],
+    "another-bucket/ortho/": ["orthoimagery"],
+    "another-bucket/lidar/": ["lidar", "archived"]
   },
-
   "colors": {
     "orthoimagery": "#e63946",
-    "lidar":        "#457b9d",
-    "metadata":     "#2a9d8f"
+    "lidar": "#457b9d",
+    "metadata": "#2a9d8f",
+    "archived": "#6c757d"
   }
 }
